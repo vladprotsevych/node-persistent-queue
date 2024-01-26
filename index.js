@@ -56,7 +56,7 @@ let table_count = 'queue_count' ;
  * @param {number} [batchSize=10] The number of rows from queue db to retrieve at a time
  * @constructor
  */
-function PersistentQueue(filename, batchSize, maxAmountProcessedItems) {
+function PersistentQueue(filename, batchSize, maxConcurrentProcessors) {
 	// Call super-constructor
 	EventEmitter.call(this) ;
 
@@ -125,14 +125,14 @@ function PersistentQueue(filename, batchSize, maxAmountProcessedItems) {
 	 * @type {number}
 	 * @access private
 	 */
-	this.maxAmountProcessedItems = maxAmountProcessedItems ;
+	this.maxConcurrentProcessors = maxConcurrentProcessors;
 
 	/**
 	 * Counter for processed items
 	 * @type {number}
 	 * @access private
 	 */
-	this.counterProcessedItems = 0 ;
+	this.finishedProcessorsCounter = 0;
 
 	/**
 	 * Should the queue process messages
@@ -357,9 +357,9 @@ PersistentQueue.prototype.done = function (id) {
       this.length--;
     })
     .then(() => {
-			this.counterProcessedItems++
-      if (this.counterProcessedItems === this.maxAmountProcessedItems) {
-				this.counterProcessedItems = 0;
+      this.finishedProcessorsCounter++
+      if (this.finishedProcessorsCounter === this.maxConcurrentProcessors) {
+        this.finishedProcessorsCounter = 0;
         this.emit("trigger_next");
       }
     })
