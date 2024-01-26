@@ -56,7 +56,7 @@ let table_count = 'queue_count' ;
  * @param {number} [batchSize=10] The number of rows from queue db to retrieve at a time
  * @constructor
  */
-function PersistentQueue(filename, batchSize) {
+function PersistentQueue(filename, batchSize, maxConcurrentProcessors) {
 	// Call super-constructor
 	EventEmitter.call(this) ;
 
@@ -121,6 +121,20 @@ function PersistentQueue(filename, batchSize) {
 	this.opened = false ;
 
 	/**
+	 * The max amount of processed items
+	 * @type {number}
+	 * @access private
+	 */
+	this.maxConcurrentProcessors = maxConcurrentProcessors;
+
+	/**
+	 * Counter for processed items
+	 * @type {number}
+	 * @access private
+	 */
+	this.finishedProcessorsCounter = 0;
+
+	/**
 	 * Should the queue process messages
 	 * @type {boolean}
 	 * @access private
@@ -153,7 +167,9 @@ function PersistentQueue(filename, batchSize) {
 
 		// Define our embedded recursive function to be called later
 		const trigger = () => {
-			this.emit('next', this.queue[0]) ;
+			for (const item of this.queue) {
+				this.emit('next', item);
+			}
 		} ;
 
 		// If our in-memory list is empty, but queue is not, re-hydrate from db
@@ -331,22 +347,27 @@ PersistentQueue.prototype.stop = function() {
  *
  * It will remove the current  job from the sqlite queue and emit another 'next' event
  */
-PersistentQueue.prototype.done = function() {
-
-	if(this.debug) console.log('Calling done!') ;
-	// Remove the job from the queue
-	removeJob(this)
-	.then(() => {
-		if(this.debug) console.log('Job deleted from db') ;
-		// Decrement our job length
-		this.length-- ;
-		this.emit('trigger_next') ;
-	})
-	.catch(err => {
-		console.error(err) ;
-		process.exit(1) ;
-	}) ;
-} ;
+PersistentQueue.prototype.done = function (id) {
+  if (this.debug) console.log("Calling done!");
+  // Remove the job from the queue
+  removeJob(this, id)
+    .then(() => {
+      if (this.debug) console.log("Job deleted from db");
+      // Decrement our job length
+      this.length--;
+    })
+    .then(() => {
+      this.finishedProcessorsCounter++
+      if (this.finishedProcessorsCounter === this.maxConcurrentProcessors) {
+        this.finishedProcessorsCounter = 0;
+        this.emit("trigger_next");
+      }
+    })
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+};
 
 /**
  * Called by user from within their 'next' event handler when error occurred and job to remain at head of queue
